@@ -6,6 +6,7 @@ Built with Streamlit + Google Gemini + Twilio WhatsApp.
 Supports text chat, multimodal food photo analysis, nutrition summaries, and WhatsApp Sandbox notification.
 """
 
+import json
 import streamlit as st
 from google import genai
 from google.genai import types
@@ -21,17 +22,19 @@ ALLOWED_IMAGE_TYPES = {
 }
 ALLOWED_EXTENSIONS = ("jpg", "jpeg", "png", "webp")
 
+# Gemini model fallback list for maximum reliability
+GEMINI_MODELS = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-3.6-flash"]
+
 
 # ---------------------------------------------------------------------------
-# Gemini Client — cached per Streamlit session
+# Gemini Client — cached per API key
 # ---------------------------------------------------------------------------
 @st.cache_resource
-def get_gemini_client():
-    """Initialise and return a Google GenAI client using stored API key."""
-    api_key = st.secrets.get("GEMINI_API_KEY", "")
+def get_gemini_client(api_key: str):
+    """Initialise and return a Google GenAI client using the provided API key."""
     if not api_key or "PASTE_" in api_key:
         st.error(
-            "⚠️ GEMINI_API_KEY is missing or unconfigured in .streamlit/secrets.toml. "
+            "⚠️ GEMINI_API_KEY is missing or unconfigured in secrets. "
             "Please configure your API key and restart the app."
         )
         st.stop()
@@ -42,18 +45,14 @@ def get_gemini_client():
 # Twilio Client — cached per Streamlit session
 # ---------------------------------------------------------------------------
 @st.cache_resource
-def get_twilio_client():
+def get_twilio_client(account_sid: str, auth_token: str):
     """Initialise and return a Twilio Client using credentials in secrets.toml."""
-    account_sid = st.secrets.get("TWILIO_ACCOUNT_SID", "")
-    auth_token = st.secrets.get("TWILIO_AUTH_TOKEN", "")
-
     if not account_sid or not auth_token or "PASTE_" in account_sid or "PASTE_" in auth_token:
         st.error(
-            "⚠️ Twilio credentials missing or unconfigured in .streamlit/secrets.toml. "
+            "⚠️ Twilio credentials missing or unconfigured in secrets. "
             "Please check TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN."
         )
         return None
-
     return Client(account_sid, auth_token)
 
 
@@ -75,7 +74,9 @@ def send_whatsapp_sandbox_message(to_number: str) -> tuple[bool, str, str]:
     Send a WhatsApp message via Twilio Sandbox using the configured Content SID.
     Returns (success_boolean, status_message, info_disclaimer).
     """
-    client = get_twilio_client()
+    account_sid = st.secrets.get("TWILIO_ACCOUNT_SID", "")
+    auth_token = st.secrets.get("TWILIO_AUTH_TOKEN", "")
+    client = get_twilio_client(account_sid, auth_token)
     if client is None:
         return False, "Twilio client is unconfigured or missing valid credentials.", ""
 
@@ -83,7 +84,7 @@ def send_whatsapp_sandbox_message(to_number: str) -> tuple[bool, str, str]:
     content_sid = st.secrets.get("TWILIO_CONTENT_SID", "")
 
     if not from_number or not content_sid or "PASTE_" in from_number or "PASTE_" in content_sid:
-        return False, "Twilio WhatsApp sender or Content SID missing in secrets.toml.", ""
+        return False, "Twilio WhatsApp sender or Content SID missing in secrets.", ""
 
     normalized_to = normalize_whatsapp_number(to_number)
 
@@ -145,16 +146,25 @@ def build_gemini_history(messages: list) -> list:
 
 
 def call_gemini(client, messages: list) -> str:
-    """Send conversation history to Gemini and return the response."""
+    """Send conversation history to Gemini and return the response, with automatic model fallback."""
     history = build_gemini_history(messages)
-    response = client.models.generate_content(
-        model="gemini-3.8-flash",
-        contents=history,
-        config=types.GenerateContentConfig(
-            system_instruction=SYSTEM_PROMPT,
-        ),
-    )
-    return response.text
+    last_exception = None
+
+    for model_name in GEMINI_MODELS:
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=history,
+                config=types.GenerateContentConfig(
+                    system_instruction=SYSTEM_PROMPT,
+                ),
+            )
+            return response.text
+        except Exception as e:
+            last_exception = e
+            continue
+
+    raise last_exception
 
 
 def generate_nutrition_summary(client, messages: list) -> str:
@@ -163,14 +173,22 @@ def generate_nutrition_summary(client, messages: list) -> str:
     summary_prompt_part = types.Part(text=SUMMARY_REQUEST_PROMPT)
     history.append(types.UserContent(parts=[summary_prompt_part]))
 
-    response = client.models.generate_content(
-        model="gemini-3.8-flash",
-        contents=history,
-        config=types.GenerateContentConfig(
-            system_instruction=SYSTEM_PROMPT,
-        ),
-    )
-    return response.text
+    last_exception = None
+    for model_name in GEMINI_MODELS:
+        try:
+            response = client.models.generate_content(
+                model=model_name,
+                contents=history,
+                config=types.GenerateContentConfig(
+                    system_instruction=SYSTEM_PROMPT,
+                ),
+            )
+            return response.text
+        except Exception as e:
+            last_exception = e
+            continue
+
+    raise last_exception
 
 
 # ---------------------------------------------------------------------------
@@ -282,7 +300,8 @@ else:
             if not user_has_messages:
                 st.warning("⚠️ No meal entries yet! Describe a meal or upload a food photo first.")
             else:
-                client = get_gemini_client()
+                api_key = st.secrets.get("GEMINI_API_KEY", "")
+                client = get_gemini_client(api_key)
                 with st.spinner("Generating your nutrition summary..."):
                     try:
                         summary_text = generate_nutrition_summary(client, st.session_state.messages)
@@ -333,7 +352,8 @@ else:
 
             with col2:
                 if st.button("🔄 Regenerate Summary", use_container_width=True):
-                    client = get_gemini_client()
+                    api_key = st.secrets.get("GEMINI_API_KEY", "")
+                    client = get_gemini_client(api_key)
                     with st.spinner("Regenerating summary..."):
                         try:
                             summary_text = generate_nutrition_summary(client, st.session_state.messages)
@@ -375,7 +395,8 @@ else:
         if not user_has_messages:
             st.warning("⚠️ No meal entries yet! Describe a meal or upload a food photo first.")
         else:
-            client = get_gemini_client()
+            api_key = st.secrets.get("GEMINI_API_KEY", "")
+            client = get_gemini_client(api_key)
             with st.spinner("Generating your nutrition summary..."):
                 try:
                     summary_text = generate_nutrition_summary(client, st.session_state.messages)
@@ -466,7 +487,8 @@ else:
                 st.markdown(final_text_prompt)
 
         # --- Call Gemini API ---
-        client = get_gemini_client()
+        api_key = st.secrets.get("GEMINI_API_KEY", "")
+        client = get_gemini_client(api_key)
         with st.chat_message("assistant"):
             with st.spinner("MacroSnap is analyzing your food..."):
                 try:

@@ -148,7 +148,7 @@ def call_gemini(client, messages: list) -> str:
     """Send conversation history to Gemini and return the response."""
     history = build_gemini_history(messages)
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-3.8-flash",
         contents=history,
         config=types.GenerateContentConfig(
             system_instruction=SYSTEM_PROMPT,
@@ -164,7 +164,7 @@ def generate_nutrition_summary(client, messages: list) -> str:
     history.append(types.UserContent(parts=[summary_prompt_part]))
 
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-3.8-flash",
         contents=history,
         config=types.GenerateContentConfig(
             system_instruction=SYSTEM_PROMPT,

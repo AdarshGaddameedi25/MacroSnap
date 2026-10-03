@@ -23,7 +23,7 @@ ALLOWED_IMAGE_TYPES = {
 ALLOWED_EXTENSIONS = ("jpg", "jpeg", "png", "webp")
 
 # Gemini model fallback list for maximum reliability
-GEMINI_MODELS = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-3.6-flash"]
+GEMINI_MODELS = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.8-flash"]
 
 
 # ---------------------------------------------------------------------------

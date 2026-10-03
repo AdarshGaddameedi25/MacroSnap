@@ -32,13 +32,14 @@ GEMINI_MODELS = ["gemini-3.6-flash", "gemini-3.5-flash", "gemini-3.8-flash"]
 @st.cache_resource
 def get_gemini_client(api_key: str):
     """Initialise and return a Google GenAI client using the provided API key."""
-    if not api_key or "PASTE_" in api_key:
+    clean_key = "".join(api_key.split()) if api_key else ""
+    if not clean_key or "PASTE_" in clean_key:
         st.error(
             "⚠️ GEMINI_API_KEY is missing or unconfigured in secrets. "
             "Please configure your API key and restart the app."
         )
         st.stop()
-    return genai.Client(api_key=api_key)
+    return genai.Client(api_key=clean_key)
 
 
 # ---------------------------------------------------------------------------
